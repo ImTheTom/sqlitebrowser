@@ -115,6 +115,9 @@ TableBrowser::TableBrowser(DBBrowserDB* _db, QWidget* parent) :
 
     // Set up filters
     connect(ui->dataTable->filterHeader(), &FilterTableHeader::filterChanged, this, &TableBrowser::updateFilter);
+    connect(ui->dataTable->filterHeader(), &FilterTableHeader::filterFocused, this, [this]() {
+        emit prepareForFilter();
+    });
     connect(ui->dataTable->filterHeader(), &FilterTableHeader::addCondFormat, this, &TableBrowser::addCondFormatFromFilter);
     connect(ui->dataTable->filterHeader(), &FilterTableHeader::allCondFormatsCleared, this, &TableBrowser::clearAllCondFormats);
     connect(ui->dataTable->filterHeader(), &FilterTableHeader::condFormatsEdited, this, &TableBrowser::editCondFormats);
@@ -122,6 +125,9 @@ TableBrowser::TableBrowser(DBBrowserDB* _db, QWidget* parent) :
     connect(ui->dataTable, &ExtendedTableWidget::dataAboutToBeEdited, this, &TableBrowser::dataAboutToBeEdited);
 
     // Set up global filter
+    connect(ui->editGlobalFilter, &FilterLineEdit::filterFocused, this, [this]() {
+        emit prepareForFilter();
+    });
     connect(ui->editGlobalFilter, &FilterLineEdit::delayedTextChanged, this, [this](const QString& value) {
         // Split up filter values
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
@@ -169,11 +175,13 @@ TableBrowser::TableBrowser(DBBrowserDB* _db, QWidget* parent) :
         emit foreignKeyClicked(table, column, value);
     });
 
+    connect(ui->actionAddDock, &QAction::triggered, this, [this]() {
+        emit newDockRequested();
+    });
     connect(ui->actionRefresh, &QAction::triggered, this, [this]() {
         db->updateSchema();
         refresh();
     });
-
     connect(ui->fontComboBox, &QFontComboBox::currentFontChanged, this, [this](const QFont &font) {
         modifyFormat([font](CondFormat& format) { format.setFontFamily(font.family()); });
     });

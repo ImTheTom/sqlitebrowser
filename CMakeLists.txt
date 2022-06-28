@@ -11,6 +11,8 @@ OPTION(FORCE_INTERNAL_QCUSTOMPLOT "Don't use distribution's QCustomPlot even if 
 OPTION(FORCE_INTERNAL_QHEXEDIT "Don't use distribution's QHexEdit even if available" ON)
 OPTION(ALL_WARNINGS "Enable some useful warning flags" OFF)
 OPTION(sqlcipher "Build with SQLCipher library" OFF)
+OPTION(LOCAL_SQLITE "Prefer SQLite in /usr/local on Unix-like systems" OFF)
+OPTION(STATIC_SQLITE "Link SQLite statically" OFF)
 
 # BUILD_VERSION is the current date in YYYYMMDD format. It is only
 # used by the nightly version to add the date of the build.
@@ -387,7 +389,7 @@ if(WIN32)
     if(MINGW)
         # resource compilation for MinGW
         add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sqlbicon.o"
-            COMMAND windres "-I${CMAKE_CURRENT_SOURCE_DIR}" "-i${CMAKE_CURRENT_SOURCE_DIR}/src/winapp.rc" -o "${CMAKE_CURRENT_BINARY_DIR}/sqlbicon.o" VERBATIM
+            COMMAND windres "-I${CMAKE_CURRENT_BINARY_DIR}" "-i${CMAKE_CURRENT_SOURCE_DIR}/src/winapp.rc" -o "${CMAKE_CURRENT_BINARY_DIR}/sqlbicon.o" VERBATIM
         )
         target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sqlbicon.o")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-subsystem,windows")
@@ -415,11 +417,15 @@ endif()
 
 # add extra library path for MacOS and FreeBSD
 set(EXTRAPATH APPLE OR ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD")
-if(EXTRAPATH)
+if(LOCAL_SQLITE OR EXTRAPATH)
     find_library(LIBSQLITE ${LIBSQLITE_NAME} HINTS /usr/local/lib /usr/local/opt/sqlite/lib)
     set(ADDITIONAL_INCLUDE_PATHS /usr/local/include /usr/local/opt/sqlite/include)
 else()
     find_library(LIBSQLITE ${LIBSQLITE_NAME})
+endif()
+
+if(STATIC_SQLITE)
+    string(REPLACE ".so" ".a" LIBSQLITE ${LIBSQLITE})
 endif()
 
 if(WIN32 AND MSVC)
@@ -535,6 +541,10 @@ if(NOT WIN32 AND NOT APPLE)
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
     )
+endif()
+
+if(STATIC_SQLITE AND UNIX)
+    target_link_libraries(${PROJECT_NAME} dl)
 endif()
 
 if(ENABLE_TESTING)

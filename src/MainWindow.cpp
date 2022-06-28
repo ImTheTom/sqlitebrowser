@@ -20,7 +20,6 @@
 #include "ExportSqlDialog.h"
 #include "SqlUiLexer.h"
 #include "FileDialog.h"
-#include "FilterTableHeader.h"
 #include "RemoteDock.h"
 #include "FindReplaceDialog.h"
 #include "RunSql.h"
@@ -251,6 +250,7 @@ void MainWindow::init()
     popupSchemaDockMenu->addAction(ui->actionPopupSchemaDockBrowseTable);
     popupSchemaDockMenu->addAction(ui->actionPopupSchemaDockDetachDatabase);
     popupSchemaDockMenu->addSeparator();
+    popupSchemaDockMenu->addAction(ui->actionDropSelectQueryCheck);
     popupSchemaDockMenu->addAction(ui->actionDropQualifiedCheck);
     popupSchemaDockMenu->addAction(ui->actionEnquoteNamesCheck);
 
@@ -434,10 +434,12 @@ void MainWindow::init()
     connect(ui->dbTreeWidget->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::changeTreeSelection);
     connect(ui->dockEdit, &QDockWidget::visibilityChanged, this, &MainWindow::toggleEditDock);
     connect(remoteDock, SIGNAL(openFile(QString)), this, SLOT(fileOpen(QString)));
+    connect(ui->actionDropSelectQueryCheck, &QAction::toggled, dbStructureModel, &DbStructureModel::setDropSelectQuery);
     connect(ui->actionDropQualifiedCheck, &QAction::toggled, dbStructureModel, &DbStructureModel::setDropQualifiedNames);
     connect(ui->actionEnquoteNamesCheck, &QAction::toggled, dbStructureModel, &DbStructureModel::setDropEnquotedNames);
     connect(&db, &DBBrowserDB::databaseInUseChanged, this, &MainWindow::updateDatabaseBusyStatus);
 
+    ui->actionDropSelectQueryCheck->setChecked(Settings::getValue("SchemaDock", "dropSelectQuery").toBool());
     ui->actionDropQualifiedCheck->setChecked(Settings::getValue("SchemaDock", "dropQualifiedNames").toBool());
     ui->actionEnquoteNamesCheck->setChecked(Settings::getValue("SchemaDock", "dropEnquotedNames").toBool());
 
@@ -775,6 +777,7 @@ void MainWindow::closeEvent( QCloseEvent* event )
         Settings::setValue("MainWindow", "openTabs", saveOpenTabs());
 
         Settings::setValue("SQLLogDock", "Log", ui->comboLogSubmittedBy->currentText());
+        Settings::setValue("SchemaDock", "dropSelectQuery", ui->actionDropSelectQueryCheck->isChecked());
         Settings::setValue("SchemaDock", "dropQualifiedNames", ui->actionDropQualifiedCheck->isChecked());
         Settings::setValue("SchemaDock", "dropEnquotedNames", ui->actionEnquoteNamesCheck->isChecked());
 
@@ -2140,6 +2143,12 @@ void MainWindow::changeSqlTab(int index)
         ui->actionSqlExecuteLine->setEnabled(false);
         ui->actionExecuteSql->setEnabled(false);
         ui->actionSqlStop->setEnabled(true);
+    }
+    SqlExecutionArea* sqlWidget = qobject_cast<SqlExecutionArea*>(ui->tabSqlAreas->currentWidget());
+    if (sqlWidget) {
+      m_currentTabTableModel = sqlWidget->getModel();
+
+      dataTableSelectionChanged(sqlWidget->getTableResult()->currentIndex());
     }
 }
 
@@ -3786,8 +3795,15 @@ void MainWindow::tableBrowserTabClosed()
     // the last dock which is closed instead of if there is no dock remaining.
     if(allTableBrowserDocks().size() == 1)
     {
-        newTableBrowserTab();
+        newTableBrowserTab({}, /* forceHideTitlebar */ true);
     } else {
+        // If only one dock will be left, make sure its titlebar is hidden,
+        // unless it's floating, so it can be closed or restored.
+        if(allTableBrowserDocks().size() == 2) {
+            for(auto dock : allTableBrowserDocks())
+                if(!dock->isFloating())
+                    dock->setTitleBarWidget(new QWidget(dock));
+        }
         // If the currently active tab is closed activate another tab
         if(currentTableBrowser && sender() == currentTableBrowser->parent())
         {
@@ -3798,7 +3814,7 @@ void MainWindow::tableBrowserTabClosed()
     }
 }
 
-TableBrowserDock* MainWindow::newTableBrowserTab(const sqlb::ObjectIdentifier& tableToBrowse)
+TableBrowserDock* MainWindow::newTableBrowserTab(const sqlb::ObjectIdentifier& tableToBrowse, bool forceHideTitleBar)
 {
     // Prepare new dock
     TableBrowserDock* d = new TableBrowserDock(ui->tabBrowsers, this);
@@ -3837,6 +3853,15 @@ TableBrowserDock* MainWindow::newTableBrowserTab(const sqlb::ObjectIdentifier& t
         auto& settings = d->tableBrowser()->settings(d->tableBrowser()->currentlyBrowsedTableName());
         plotDock->updatePlot(d->tableBrowser()->model(), &settings, true, false);
     });
+    connect(d->tableBrowser(), &TableBrowser::prepareForFilter, editDock, &EditDialog::promptSaveData);
+
+    // Restore titlebar for any other widget
+    for(auto dock : allTableBrowserDocks())
+        dock->setTitleBarWidget(nullptr);
+
+    // Hide titlebar if it is the only one dock
+    if(allTableBrowserDocks().size() == 1 || forceHideTitleBar)
+        d->setTitleBarWidget(new QWidget(d));
 
     // Set up dock and add it to the tab
     ui->tabBrowsers->addDockWidget(Qt::TopDockWidgetArea, d);
